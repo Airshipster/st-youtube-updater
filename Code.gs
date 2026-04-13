@@ -1,30 +1,37 @@
+/* -------------------------------------------------------------------------
+ * YouTube → Google Sheets Updater (V8)
+ * -------------------------------------------------------------------------
+ * Файл: Code.gs
+ * -------------------------------------------------------------------------
+ */
+
 const SHEET_NAME   = 'Стат. Каналы';
 const START_ROW    = 3;
-const COL          = { LINK:1, CUSTOM:2, TITLE:3, VIDEOS:4, SUBS:5, VIEWS:6, KIDS:7, LICENSE:8, CATS:9, TAGS:10, CREATED:11, LAST:12, ID:13 };
+const COL          = {
+  LINK:1, CUSTOM:2, TITLE:3, VIDEOS:4, SUBS:5, VIEWS:6,
+  KIDS:7, LICENSE:8, CATS:9, TAGS:10, CREATED:11, LAST:12, ID:13
+};
 const BATCH_SIZE   = 50;
 const DATE_FMT     = 'dd.MM.yyyy';
-const DAILY_HOUR   = 8; // 08:00
+const DAILY_HOUR   = 8;               // 08:00 (оставлено только для справки)
 
-const RUNTIME_BUDGET_MS = 0;
-const QUOTA_BUDGET      = 0;
+const RUNTIME_BUDGET_MS = 0;          // 0 – отключено
+const QUOTA_BUDGET      = 0;          // 0 – отключено
 
 let REQ = { channels: 0, playlistItems: 0, videos: 0 };
 
+/* -------------------- UI -------------------- */
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('YouTube')
     .addItem('Обновить данные', 'updateYouTubeData')
     .addSeparator()
-    .addItem('Включить ежедневный триггер (08:00)', 'enableDailyTrigger')
+    .addItem('Включить ежедневный триггер (08:00)', 'enableDailyTrigger')   // «для справки», но не используется
     .addItem('Отключить триггеры', 'disableAllTriggers')
     .addToUi();
-
-  const hasRight = ScriptApp.getProjectTriggers()
-    .some(t => t.getTriggerSource() === ScriptApp.TriggerSource.CLOCK &&
-               t.getHandlerFunction() === 'updateYouTubeData');
-  if (!hasRight) enableDailyTrigger();
 }
 
+/* -------------------- Helpers -------------------- */
 function getSheet_() {
   const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   if (!sh) throw new Error('Лист "' + SHEET_NAME + '" не найден.');
@@ -41,13 +48,13 @@ function logAdd_(sheet, text){
   c.setValue(prev ? prev + '\n[' + clock_(sheet) + '] ' + text : '[' + clock_(sheet) + '] ' + text);
 }
 
+/* статус‑строка в ячейке A2 */
 function currentTriggerStatus_() {
   const clocks = ScriptApp.getProjectTriggers()
     .filter(t => t.getTriggerSource() === ScriptApp.TriggerSource.CLOCK);
   const hasRight = clocks.some(t => t.getHandlerFunction() === 'updateYouTubeData');
   return hasRight ? 'Ежедневный триггер включён (08:00)' : 'Все триггеры отключены';
 }
-
 function setStatusInA2_(statusText){
   const sh = getSheet_();
   const cell = sh.getRange(2,1);
@@ -75,6 +82,7 @@ function setStatusInA2_(statusText){
   cell.setValue(txt);
 }
 
+/* -------------------- Retry with back‑off -------------------- */
 function withRetry_(fn, tries){
   tries = tries || 3;
   let delay = 500;
@@ -92,6 +100,7 @@ function withRetry_(fn, tries){
   }
 }
 
+/* -------------------- Topic → human readable -------------------- */
 function normalizeTopicTail_(u){
   try{
     let tail = decodeURIComponent(String(u).split('/').pop() || '').replace(/_/g,' ');
@@ -99,7 +108,6 @@ function normalizeTopicTail_(u){
     return tail.trim();
   }catch(_){ return ''; }
 }
-
 function catMap_(){
   return {
     "Video game culture":"Культура компьютерных игр",
@@ -167,10 +175,12 @@ function catMap_(){
   };
 }
 
+/* -------------------- Основная функция -------------------- */
 function updateYouTubeData(){
   const sh = getSheet_();
   REQ = { channels: 0, playlistItems: 0, videos: 0 };
 
+  // Очистка старых данных (A..F и I..L)
   const lastRowBefore = sh.getLastRow();
   if (lastRowBefore >= START_ROW) {
     const rows = lastRowBefore - START_ROW + 1;
@@ -195,6 +205,7 @@ function updateYouTubeData(){
     return;
   }
 
+  // Форматируем даты сразу
   if (n > 0) sh.getRange(START_ROW, COL.CREATED, n, 2).setNumberFormat(DATE_FMT);
 
   const cmap = catMap_();
@@ -213,7 +224,8 @@ function updateYouTubeData(){
     let chRes;
     try {
       chRes = withRetry_(() => YouTube.Channels.list(
-        'snippet,statistics,contentDetails,status,brandingSettings,topicDetails', { id: idList }
+        'snippet,statistics,contentDetails,status,brandingSettings,topicDetails',
+        { id: idList }
       ), 3);
       REQ.channels += 1; spentUnits += 1;
     } catch (e) {
@@ -228,35 +240,48 @@ function updateYouTubeData(){
           id: ch.id,
           title: ch.snippet ? ch.snippet.title : '',
           videos: ch.statistics ? ch.statistics.videoCount : '',
-          subs: (ch.statistics && !ch.statistics.hiddenSubscriberCount) ? ch.statistics.subscriberCount : '(скрыты)',
+          subs: (ch.statistics && !ch.statistics.hiddenSubscriberCount)
+                ? ch.statistics.subscriberCount
+                : '(скрыты)',
           views: ch.statistics ? ch.statistics.viewCount : '',
           createdISO: ch.snippet ? ch.snippet.publishedAt : null,
           uploads: ch.contentDetails ? ch.contentDetails.relatedPlaylists.uploads : null,
           customUrl: (ch.snippet && ch.snippet.customUrl) ? ch.snippet.customUrl : '',
-          keywords: (ch.brandingSettings && ch.brandingSettings.channel && ch.brandingSettings.channel.keywords) ? ch.brandingSettings.channel.keywords : '',
-          topics: (ch.topicDetails && ch.topicDetails.topicCategories) ? ch.topicDetails.topicCategories : [],
-          lastISO: null
+          keywords: (ch.brandingSettings && ch.brandingSettings.channel && ch.brandingSettings.channel.keywords)
+                    ? ch.brandingSettings.channel.keywords
+                    : '',
+          topics: (ch.topicDetails && ch.topicDetails.topicCategories)
+                  ? ch.topicDetails.topicCategories
+                  : [],
+          lastISO: null               // будет заполнено ниже
         };
       }
     }
 
-    // последнее видео – по одному запросу на канал
+    /* ---------- Последнее видео канала (по одному запросу на канал) ---------- */
     for (const it of batch) {
       const info = dict[it.id];
-      if (!info || !info.uploads) continue;
+      if (!info || !info.uploads) continue;               // у канала нет плейлиста «uploads»
+
       try {
-        const pl = withRetry_(() => YouTube.PlaylistItems.list('snippet', { playlistId: info.uploads, maxResults: 1 }), 3);
+        const pl = withRetry_(() => YouTube.PlaylistItems.list(
+          'snippet',
+          { playlistId: info.uploads, maxResults: 1 }
+        ), 3);
         REQ.playlistItems += 1; spentUnits += 1;
         info.lastISO = (pl.items && pl.items[0]) ? pl.items[0].snippet.publishedAt : null;
       } catch (e) {
+        // если запрос упал – просто оставляем lastISO = null
         info.lastISO = null;
       }
     }
 
-    // запись в таблицу
+    /* -------------------- Запись полученных данных в таблицу -------------------- */
     for (const it of batch) {
-      const info = dict[it.id]; if (!info) continue;
+      const info = dict[it.id];
+      if (!info) continue;
 
+      // Формируем ссылки
       const linkA = 'youtube.com/channel/' + info.id + '/videos';
       let customB = '';
       if (info.customUrl) {
@@ -264,19 +289,27 @@ function updateYouTubeData(){
         customB = 'youtube.com/' + tail + '/videos';
       }
 
-      const catsRu = (info.topics || []).map(normalizeTopicTail_).filter(Boolean)
-                        .map(t => (cmap[t] || t));
+      // Переводим категории (topicCategories) в русский и убираем дубликаты
+      const catsRu = (info.topics || [])
+        .map(normalizeTopicTail_)
+        .filter(Boolean)
+        .map(t => (cmap[t] || t));
       const catsUniq = Array.from(new Set(catsRu)).join(', ');
 
+      // Даты
       const createdDate = info.createdISO ? new Date(info.createdISO) : '';
       const lastDate    = info.lastISO    ? new Date(info.lastISO)    : '';
 
-      // A..F
-      sh.getRange(it.row, COL.LINK, 1, 6).setValues([[ linkA, customB, info.title, info.videos, info.subs, info.views ]]);
-      // I..L
-      sh.getRange(it.row, COL.CATS, 1, 4).setValues([[ catsUniq, info.keywords, createdDate, lastDate ]]);
+      // A..F (LINK, CUSTOM, TITLE, VIDEOS, SUBS, VIEWS)
+      sh.getRange(it.row, COL.LINK, 1, 6)
+        .setValues([[ linkA, customB, info.title, info.videos, info.subs, info.views ]]);
+
+      // I..L (CATS, KEYWORDS, CREATED, LAST)
+      sh.getRange(it.row, COL.CATS, 1, 4)
+        .setValues([[ catsUniq, info.keywords, createdDate, lastDate ]]);
 
       processed++;
+      // Пишем прогресс каждые 25 обработанных каналов
       if (processed % 25 === 0) {
         const totalReq = REQ.channels + REQ.playlistItems + REQ.videos;
         logAdd_(sh, 'Обработано каналов: ' + processed + ' / ' + ids.length + ' | Запросов: ' + totalReq);
@@ -284,10 +317,11 @@ function updateYouTubeData(){
     }
 
     const totalReqBatch = REQ.channels + REQ.playlistItems + REQ.videos;
-    logAdd_(sh, 'Пачка ' + Math.min(i + BATCH_SIZE, ids.length) + '/' + ids.length + ' готова | Запросов всего: ' + totalReqBatch);
+    logAdd_(sh, 'Пачка ' + Math.min(i + BATCH_SIZE, ids.length) + '/' + ids.length +
+                ' готова | Запросов всего: ' + totalReqBatch);
   }
 
-  // Финальный вывод
+  /* -------------------- Финальный вывод -------------------- */
   const spent = REQ.channels + REQ.playlistItems + REQ.videos; // ≈ юниты
   const limit = 10000;
   const left  = Math.max(0, limit - spent);
@@ -295,13 +329,16 @@ function updateYouTubeData(){
     '🤖 Обновление завершено: ' + nowStamp_(sh) +
     ' | Обработано: ' + processed +
     ' | Запросов: ' + spent +
-    ' (channels: ' + REQ.channels + ', playlistItems: ' + REQ.playlistItems + ', videos: ' + REQ.videos + ')' +
+    ' (channels: ' + REQ.channels +
+    ', playlistItems: ' + REQ.playlistItems +
+    ', videos: ' + REQ.videos + ')' +
     ' | Квота ≈ ' + spent + ' / ' + limit + ' (остаток ≈ ' + left + ')';
+
   sh.getRange(2,1).setValue(endLine);
   setStatusInA2_(currentTriggerStatus_());
 }
 
-/* ==== Триггеры ==== */
+/* -------------------- Управление триггерами (оставлено «для справки») -------------------- */
 function enableDailyTrigger(){
   // Удаляем только свои CLOCK‑триггеры updateYouTubeData
   ScriptApp.getProjectTriggers()
