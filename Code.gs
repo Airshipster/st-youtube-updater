@@ -174,8 +174,8 @@ function updateYouTubeData(){
   const lastRowBefore = sh.getLastRow();
   if (lastRowBefore >= START_ROW) {
     const rows = lastRowBefore - START_ROW + 1;
-    sh.getRange(START_ROW, 1, rows, 6).clearContent();
-    sh.getRange(START_ROW, 9, rows, 4).clearContent();
+    sh.getRange(START_ROW, 1, rows, 6).clearContent(); // A..F
+    sh.getRange(START_ROW, 9, rows, 4).clearContent(); // I..L
   }
 
   logSet_(sh, 'Старт обновления…');
@@ -209,6 +209,7 @@ function updateYouTubeData(){
     const batch = ids.slice(i, i+BATCH_SIZE);
     const idList = batch.map(o=>o.id).join(',');
 
+    // channels.list – один запрос на батч
     let chRes;
     try {
       chRes = withRetry_(() => YouTube.Channels.list(
@@ -230,4 +231,100 @@ function updateYouTubeData(){
           subs: (ch.statistics && !ch.statistics.hiddenSubscriberCount) ? ch.statistics.subscriberCount : '(скрыты)',
           views: ch.statistics ? ch.statistics.viewCount : '',
           createdISO: ch.snippet ? ch.snippet.publishedAt : null,
-          uploads: ch.contentDetails ? ch.content
+          uploads: ch.contentDetails ? ch.contentDetails.relatedPlaylists.uploads : null,
+          customUrl: (ch.snippet && ch.snippet.customUrl) ? ch.snippet.customUrl : '',
+          keywords: (ch.brandingSettings && ch.brandingSettings.channel && ch.brandingSettings.channel.keywords) ? ch.brandingSettings.channel.keywords : '',
+          topics: (ch.topicDetails && ch.topicDetails.topicCategories) ? ch.topicDetails.topicCategories : [],
+          lastISO: null
+        };
+      }
+    }
+
+    // последнее видео – по одному запросу на канал
+    for (const it of batch) {
+      const info = dict[it.id];
+      if (!info || !info.uploads) continue;
+      try {
+        const pl = withRetry_(() => YouTube.PlaylistItems.list('snippet', { playlistId: info.uploads, maxResults: 1 }), 3);
+        REQ.playlistItems += 1; spentUnits += 1;
+        info.lastISO = (pl.items && pl.items[0]) ? pl.items[0].snippet.publishedAt : null;
+      } catch (e) {
+        info.lastISO = null;
+      }
+    }
+
+    // запись в таблицу
+    for (const it of batch) {
+      const info = dict[it.id]; if (!info) continue;
+
+      const linkA = 'youtube.com/channel/' + info.id + '/videos';
+      let customB = '';
+      if (info.customUrl) {
+        const tail = info.customUrl.charAt(0) === '@' ? info.customUrl : info.customUrl;
+        customB = 'youtube.com/' + tail + '/videos';
+      }
+
+      const catsRu = (info.topics || []).map(normalizeTopicTail_).filter(Boolean)
+                        .map(t => (cmap[t] || t));
+      const catsUniq = Array.from(new Set(catsRu)).join(', ');
+
+      const createdDate = info.createdISO ? new Date(info.createdISO) : '';
+      const lastDate    = info.lastISO    ? new Date(info.lastISO)    : '';
+
+      // A..F
+      sh.getRange(it.row, COL.LINK, 1, 6).setValues([[ linkA, customB, info.title, info.videos, info.subs, info.views ]]);
+      // I..L
+      sh.getRange(it.row, COL.CATS, 1, 4).setValues([[ catsUniq, info.keywords, createdDate, lastDate ]]);
+
+      processed++;
+      if (processed % 25 === 0) {
+        const totalReq = REQ.channels + REQ.playlistItems + REQ.videos;
+        logAdd_(sh, 'Обработано каналов: ' + processed + ' / ' + ids.length + ' | Запросов: ' + totalReq);
+      }
+    }
+
+    const totalReqBatch = REQ.channels + REQ.playlistItems + REQ.videos;
+    logAdd_(sh, 'Пачка ' + Math.min(i + BATCH_SIZE, ids.length) + '/' + ids.length + ' готова | Запросов всего: ' + totalReqBatch);
+  }
+
+  // Финальный вывод
+  const spent = REQ.channels + REQ.playlistItems + REQ.videos; // ≈ юниты
+  const limit = 10000;
+  const left  = Math.max(0, limit - spent);
+  const endLine =
+    '🤖 Обновление завершено: ' + nowStamp_(sh) +
+    ' | Обработано: ' + processed +
+    ' | Запросов: ' + spent +
+    ' (channels: ' + REQ.channels + ', playlistItems: ' + REQ.playlistItems + ', videos: ' + REQ.videos + ')' +
+    ' | Квота ≈ ' + spent + ' / ' + limit + ' (остаток ≈ ' + left + ')';
+  sh.getRange(2,1).setValue(endLine);
+  setStatusInA2_(currentTriggerStatus_());
+}
+
+/* ==== Триггеры ==== */
+function enableDailyTrigger(){
+  // Удаляем только свои CLOCK‑триггеры updateYouTubeData
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getTriggerSource() === ScriptApp.TriggerSource.CLOCK &&
+                 t.getHandlerFunction() === 'updateYouTubeData')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  // Если «правильного» ещё нет — создаём
+  const hasRight = ScriptApp.getProjectTriggers()
+    .some(t => t.getTriggerSource() === ScriptApp.TriggerSource.CLOCK &&
+               t.getHandlerFunction() === 'updateYouTubeData');
+  if (!hasRight) {
+    ScriptApp.newTrigger('updateYouTubeData')
+      .timeBased().atHour(DAILY_HOUR).nearMinute(0).everyDays(1).create();
+  }
+  setStatusInA2_(currentTriggerStatus_());
+}
+function disableAllTriggers(){
+  // Удаляем только свои CLOCK‑триггеры YouTube‑обновления
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getTriggerSource() === ScriptApp.TriggerSource.CLOCK &&
+                t.getHandlerFunction() === 'updateYouTubeData')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  setStatusInA2_('Триггеры обновления YouTube отключены');
+}
