@@ -4,7 +4,7 @@ name: YouTube Channels Update (ST)
 on:
   schedule:
     - cron: "0 4 * * *"      # каждый день в 04:00 UTC
-  workflow_dispatch:         # можно запустить вручную из UI GitHub
+  workflow_dispatch:         # возможность запустить вручную из UI GitHub
 
 jobs:
   run:
@@ -29,7 +29,7 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         run: |
-          # Сохраняем JSON‑ключ точно так, как он хранится в секрете
+          # Сохраняем JSON‑ключ без изменения формата
           printf '%s' "$GCP_SA_KEY" > /tmp/sa.json
           npx clasp login --creds /tmp/sa.json
 
@@ -38,7 +38,6 @@ jobs:
         env:
           SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
         run: |
-          # Указываем, к какому проекту будем пушить
           npx clasp --script-id "$SCRIPT_ID" push
 
       # 5️⃣ Запускаем функцию updateYouTubeData через Execution API
