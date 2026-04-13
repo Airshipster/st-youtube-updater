@@ -11,9 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # 1️⃣ Клонируем репозиторий
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # 2️⃣ Устанавливаем Node и нужные зависимости (clasp, google‑auth‑library)
+      # 2️⃣ Устанавливаем Node и нужные зависимости
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -21,15 +22,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm init -y
-          npm i @google/clasp google-auth-library
+          npm init -y > /dev/null
+          npm i @google/clasp google-auth-library > /dev/null
 
       # 3️⃣ Авторизуемся в Google через сервис‑аккаунт
       - name: Authenticate clasp
         env:
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         run: |
-          # Сохраняем JSON‑ключ без изменения формата
+          # Сохраняем JSON‑ключ в файл без изменения формата
           printf '%s' "$GCP_SA_KEY" > /tmp/sa.json
           npx clasp login --creds /tmp/sa.json
 
@@ -64,7 +65,7 @@ jobs:
           auth.getClient().then(c=>c.getAccessToken()).then(t=>console.log(t.token));
           NODE
           )
-          # Вызов функции
+          # Вызов функции в Apps Script
           curl -X POST \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
