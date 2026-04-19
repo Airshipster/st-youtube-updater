@@ -1,0 +1,16 @@
+name: YouTube Update
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Apps Script
+        run: |
+          curl -L -X POST "${{ secrets.APPS_SCRIPT_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{"action":"update_youtube"}'
