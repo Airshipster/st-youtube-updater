@@ -1,0 +1,16 @@
+name: Telegram Clean
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Apps Script
+        run: |
+          curl -L -X POST "${{ secrets.APPS_SCRIPT_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{"action":"telegram_clean"}'
