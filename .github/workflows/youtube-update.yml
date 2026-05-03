@@ -1,8 +1,6 @@
 name: YouTube Update
 
 on:
-  schedule:
-    - cron: '17 4 * * *'
   workflow_dispatch:
 
 jobs:

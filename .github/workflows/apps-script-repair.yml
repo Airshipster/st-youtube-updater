@@ -1,26 +1,26 @@
-name: Telegram Clean
+name: Apps Script Repair
 
 on:
+  schedule:
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 jobs:
-  clean:
+  repair:
     runs-on: ubuntu-latest
     steps:
-      - name: Call Apps Script
+      - name: Repair Apps Script automation
         env:
           APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
-          ACTION_NAME: telegram_clean
         run: |
           python3 - <<'PY'
           import json
           import os
-          import sys
           import urllib.error
           import urllib.request
 
           url = os.environ['APPS_SCRIPT_URL']
-          body = json.dumps({'action': os.environ['ACTION_NAME']}).encode('utf-8')
+          body = json.dumps({'action': 'repair_automation'}).encode('utf-8')
 
           for _ in range(5):
               req = urllib.request.Request(
